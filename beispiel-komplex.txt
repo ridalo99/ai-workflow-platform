@@ -1,0 +1,26 @@
+Projektprotokoll: Einführung eines digitalen Reservierungssystems
+Besprechung vom 16.11.2026
+
+Ausgangslage
+Das erste Angebot vom 02.11.2026 sah 4.800,00 EUR vor. Darin waren
+eine Schnittstelle zum Kassensystem und eine Schulung vor Ort
+enthalten. Dieses Angebot wurde abgelehnt; der Betrag ist nicht fällig.
+
+Beschluss
+Im ersten Schritt wird nur die Web-App für Online-Reservierungen
+eingeführt. Die Kassenschnittstelle wird auf nächstes Jahr verschoben.
+Der freigegebene Festpreis für die Web-App beträgt 3.200,00 EUR.
+Die Zahlung wird erst nach erfolgreicher Abnahme fällig.
+
+Termine
+Am 23.11.2026 testet das Serviceteam die Eingabe und Stornierung von
+Reservierungen. Der 27.11.2026 war als Starttermin vorgeschlagen,
+wurde aber verworfen. Der neue Start ist für den 04.12.2026 geplant
+und findet nur statt, wenn das Team den Test erfolgreich abschließt.
+
+Zuständigkeiten und Risiken
+Mila koordiniert die Abnahme. Fehler aus dem Test gehen an
+support@example.org. Fragen zur Rechnung gehen an buchhaltung@example.org.
+Die Adresse kontakt-alt@example.org ist nicht mehr in Benutzung.
+Falls die Stornierung im Test fehlschlägt, bleibt das bestehende
+Telefonverfahren aktiv und der Start wird verschoben.
