@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated
 
 import httpx
-from extraction import summarize
+from extraction import approved_amount, summarize
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
@@ -55,12 +55,12 @@ class DocumentDetail(DocumentInfo):
     text: str
 
 
-FIELDS = ("emails", "dates", "amounts", "words", "summary")
+FIELDS = ("emails", "dates", "amounts", "words", "summary", "approved_amount")
 
 
 class WorkflowInput(BaseModel):
     name: str = Field(min_length=1, max_length=80, pattern=r"\S")
-    fields: list[str] = Field(min_length=1, max_length=5)
+    fields: list[str] = Field(min_length=1, max_length=6)
 
 
 class WorkflowInfo(WorkflowInput):
@@ -196,12 +196,15 @@ def execute(body: RunInput, db: DB):
         raise HTTPException(404, "Dokument oder Workflow fehlt.")
     result = {key: len(doc.text.split()) if key == "words" else
               list(dict.fromkeys(re.findall(PATTERNS[key], doc.text)))[:100]
-              for key in workflow.fields if key != "summary"}
-    if "summary" in workflow.fields:
+              for key in workflow.fields if key not in {"summary", "approved_amount"}}
+    if {"summary", "approved_amount"}.intersection(workflow.fields):
         if len(doc.text) > 6000:
-            raise HTTPException(422, "Für die KI-Zusammenfassung maximal 6.000 Zeichen verwenden.")
+            raise HTTPException(422, "Für KI-Workflows maximal 6.000 Zeichen verwenden.")
         try:
-            result["summary"] = summarize(doc.text)
+            if "summary" in workflow.fields:
+                result["summary"] = summarize(doc.text)
+            if "approved_amount" in workflow.fields:
+                result["approved_amount"] = approved_amount(doc.text)
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             raise HTTPException(502, "Ollama nicht erreichbar, Modell fehlt oder Antwort ungültig. Lokalen Dienst und Modell prüfen.") from None
     record = Run(**body.model_dump(), result=result)

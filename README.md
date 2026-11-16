@@ -54,3 +54,9 @@ Unter „Gespeicherte Workflows“ kannst du Name und Felder ändern. Ergebnisse
 3. Ohne Docker verwendet die API standardmäßig `http://127.0.0.1:11434`. Docker Desktop verwendet `http://host.docker.internal:11434`. Falls der Dienst aus Docker nicht erreichbar ist, teste zunächst den Start ohne Docker. Modell und Ziel lassen sich serverseitig über `OLLAMA_MODEL` und `OLLAMA_URL` konfigurieren. Verwende einen lokalen Dienst, damit Inhalte auf deinem Gerät bleiben.
 
 Der Adapter in `extraction.py` schickt Dokumenttext erst bei einer ausdrücklich gewählten KI-Ausführung an den konfigurierten Server. Er fordert ein JSON-Schema an und validiert die Antwort. Das prüft ihre Form, nicht die sachliche Richtigkeit. Der automatisierte Test verwendet eine simulierte Ollama-Antwort. Für einen echten Modelltest vergleiche die Zusammenfassung mit dem Original und erkläre, welche Fakten das Modell übernommen oder weggelassen hat.
+
+### Freigegebenen Betrag mit Beleg extrahieren
+
+Wähle „Freigegebener Betrag (KI)“ und führe den Workflow auf `beispiel-komplex.txt` aus. Erwartet sind **3.200,00 EUR** und ein Zitat zum freigegebenen Festpreis. Der Server akzeptiert den Wert nur, wenn er im Zitat steht und das Zitat (bis auf Leerraum) im Original vorkommt. Die Bedeutung des Zitats bleibt manuell zu prüfen. Fehlt der Wert oder ist der Beleg nicht überprüfbar, bleibt das Betragsfeld leer.
+
+Lernaufgabe: Erkläre den Unterschied zwischen JSON-Schema-Validierung und dem Abgleich des Zitats mit dem Original in `extraction.py`. Warum kann ein wörtliches Zitat trotzdem zum falschen Betrag führen?

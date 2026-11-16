@@ -52,3 +52,21 @@ def test_update_delete_and_validated_ai_response(client, monkeypatch):
     assert client.delete(f"/api/documents/{doc['id']}").status_code == 204
     assert client.get("/api/runs").json() == []
     assert client.post("/api/runs", json=body).status_code == 404
+
+
+@pytest.mark.parametrize("value,quote,status", [
+    ("3.200,00 EUR", "Freigegeben sind 3.200,00 EUR.", "quoted"),
+    ("9.000,00 EUR", "Freigegeben sind 9.000,00 EUR.", "unverified"),
+    (None, None, "missing"),
+])
+def test_amount_evidence(client, monkeypatch, value, quote, status):
+    from extraction import ApprovedAmount
+    monkeypatch.setattr("extraction.chat", lambda *_: ApprovedAmount(value=value, quote=quote))
+    doc = client.post("/api/documents", files={"file": ("test.txt", "Abgelehnt: 4.800,00 EUR. Freigegeben sind 3.200,00 EUR.")}).json()
+    flow = client.post("/api/workflows", json={"name": "Betrag", "fields": ["approved_amount"]}).json()
+    result = client.post("/api/runs", json={"document_id": doc["id"], "workflow_id": flow["id"]})
+    assert result.status_code == 201
+    assert result.json()["result"]["approved_amount"] == {
+        "status": status, "value": value if status == "quoted" else None,
+        "quote": quote if status == "quoted" else None,
+    }
