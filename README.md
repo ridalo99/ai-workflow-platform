@@ -57,6 +57,4 @@ Der Adapter in `extraction.py` schickt Dokumenttext erst bei einer ausdrücklich
 
 ### Freigegebenen Betrag mit Beleg extrahieren
 
-Wähle „Freigegebener Betrag (KI)“ und führe den Workflow auf `beispiel-komplex.txt` aus. Erwartet sind **3.200,00 EUR** und ein Zitat zum freigegebenen Festpreis. Der Server akzeptiert den Wert nur, wenn er im Zitat steht und das Zitat (bis auf Leerraum) im Original vorkommt. Die Bedeutung des Zitats bleibt manuell zu prüfen. Fehlt der Wert oder ist der Beleg nicht überprüfbar, bleibt das Betragsfeld leer.
-
-Lernaufgabe: Erkläre den Unterschied zwischen JSON-Schema-Validierung und dem Abgleich des Zitats mit dem Original in `extraction.py`. Warum kann ein wörtliches Zitat trotzdem zum falschen Betrag führen?
+Wähle „Freigegebener Betrag (KI)“ und führe den Workflow auf `beispiel-komplex.txt` aus. Erwartet sind **3.200,00 EUR** und ein Zitat zum freigegebenen Festpreis. Der Server nummeriert Beträge mit ihren Originalabsätzen. Ollama wählt eine Nummer oder meldet, dass kein Betrag eindeutig freigegeben wurde. Die App übernimmt das Zitat aus dem Dokument; ob es eine Freigabe belegt, bleibt manuell zu prüfen.

@@ -1,5 +1,6 @@
 """Ollama adapter: send text only on explicit workflow execution."""
 import os
+import re
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
@@ -12,8 +13,7 @@ class Summary(BaseModel):
 
 class ApprovedAmount(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    value: str | None = Field(max_length=80)
-    quote: str | None = Field(max_length=500)
+    candidate: int | None
 
 
 def chat(text: str, schema: type[BaseModel], instruction: str):
@@ -41,14 +41,21 @@ def summarize(text: str) -> str:
 
 
 def approved_amount(text: str) -> dict:
-    answer = chat(text, ApprovedAmount,
-        "Extrahiere nur den ausdrücklich freigegebenen EUR-Betrag. Ignoriere abgelehnte, alte oder bloß vorgeschlagene Beträge. "
-        "Gib value exakt wie im Text und quote als zusammenhängendes wörtliches Zitat mit dem Betrag und seinem Freigabekontext zurück. "
-        "Wenn es keinen eindeutigen Betrag gibt, setze beide Felder auf null.")
-    normalize = lambda value: " ".join(value.split())
-    value, quote = normalize(answer.value or ""), normalize(answer.quote or "")
-    if not value and not quote:
-        return {"value": None, "quote": None, "status": "missing"}
-    if not value or not quote or value not in quote or quote not in normalize(text):
-        return {"value": None, "quote": None, "status": "unverified"}
+    candidates = []
+    for paragraph in re.split(r"\n\s*\n", text):
+        quote = " ".join(paragraph.split())
+        for match in re.finditer(r"\b\d+(?:\.\d{3})*(?:,\d{2})?\s*(?:EUR\b|€)", quote):
+            candidates.append((match.group(), quote))
+    missing = {"value": None, "quote": None, "status": "missing"}
+    if not candidates:
+        return missing
+    listing = "\n".join(f"{i}: {value} | {quote}" for i, (value, quote) in enumerate(candidates, 1))
+    answer = chat(listing, ApprovedAmount,
+        "Wähle die Nummer des ausdrücklich freigegebenen Betrags. Ignoriere abgelehnte und vorgeschlagene Beträge. "
+        "Gib ausschließlich das Feld candidate mit der Nummer zurück, bei Unklarheit null.")
+    if answer.candidate is None:
+        return missing
+    if not 1 <= answer.candidate <= len(candidates):
+        return {**missing, "status": "unverified"}
+    value, quote = candidates[answer.candidate - 1]
     return {"value": value, "quote": quote, "status": "quoted"}

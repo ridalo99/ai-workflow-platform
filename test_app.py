@@ -54,19 +54,20 @@ def test_update_delete_and_validated_ai_response(client, monkeypatch):
     assert client.post("/api/runs", json=body).status_code == 404
 
 
-@pytest.mark.parametrize("value,quote,status", [
-    ("3.200,00 EUR", "Freigegeben sind 3.200,00 EUR.", "quoted"),
-    ("9.000,00 EUR", "Freigegeben sind 9.000,00 EUR.", "unverified"),
-    (None, None, "missing"),
-])
-def test_amount_evidence(client, monkeypatch, value, quote, status):
+@pytest.mark.parametrize("candidate,status", [(2, "quoted"), (99, "unverified"), (None, "missing")])
+def test_amount_evidence(client, monkeypatch, candidate, status):
     from extraction import ApprovedAmount
-    monkeypatch.setattr("extraction.chat", lambda *_: ApprovedAmount(value=value, quote=quote))
-    doc = client.post("/api/documents", files={"file": ("test.txt", "Abgelehnt: 4.800,00 EUR. Freigegeben sind 3.200,00 EUR.")}).json()
+
+    def choose(options, *_):
+        assert "1: 4.800,00 EUR" in options and "2: 3.200,00 EUR" in options
+        return ApprovedAmount(candidate=candidate)
+
+    monkeypatch.setattr("extraction.chat", choose)
+    doc = client.post("/api/documents", files={"file": ("test.txt", "Abgelehnt: 4.800,00 EUR.\n\nFreigegeben sind 3.200,00 EUR.")}).json()
     flow = client.post("/api/workflows", json={"name": "Betrag", "fields": ["approved_amount"]}).json()
     result = client.post("/api/runs", json={"document_id": doc["id"], "workflow_id": flow["id"]})
     assert result.status_code == 201
     assert result.json()["result"]["approved_amount"] == {
-        "status": status, "value": value if status == "quoted" else None,
-        "quote": quote if status == "quoted" else None,
+        "status": status, "value": "3.200,00 EUR" if status == "quoted" else None,
+        "quote": "Freigegeben sind 3.200,00 EUR." if status == "quoted" else None,
     }
