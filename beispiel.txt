@@ -1,0 +1,4 @@
+Rechnung Nr. 42
+Kontakt: demo@example.org
+Fällig am: 01.12.2026
+Gesamtbetrag: 149,90 EUR

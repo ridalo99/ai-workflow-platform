@@ -1,0 +1,46 @@
+# Workflow Studio
+
+Lokales Lernprojekt für Dokumentenverarbeitung. Lade eine Textdatei oder ein PDF mit Textebene hoch, speichere einen Extraktionsworkflow und wende ihn auf ein Dokument an. Das Dashboard zeigt Dokumente, Workflows und gespeicherte Ausführungen. Der Server speichert Dateinamen und Text, nicht die ursprünglichen Dateien.
+
+## Start
+
+Mit Docker Desktop: `docker compose up --build`. Öffne http://localhost:5173 für die App und http://localhost:8000/docs für die OpenAPI-Oberfläche. Compose verwendet PostgreSQL.
+
+Ohne Docker (Python 3.13 und Node.js 22.12+): im Projektordner:
+
+```sh
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/uvicorn app:app --reload
+```
+
+Zweites Terminal, ebenfalls im Projektordner:
+
+```sh
+npm --prefix frontend ci
+npm --prefix frontend run dev
+```
+
+Dieser Modus verwendet standardmäßig SQLite. Beide Varianten sind lokale Einzelplatz-Demos ohne Anmeldung. Zum Ausprobieren Beispieldaten verwenden.
+
+## Dein erster Durchlauf
+
+1. Lade `beispiel.txt` unter „Dokumente“ hoch und öffne die Textvorschau.
+2. Lege unter „Workflows“ einen Workflow „Rechnung“ mit E-Mail, Datum und Betrag an.
+3. Wähle das Dokument und den Workflow und klicke „Ausführen“.
+4. Du solltest `demo@example.org`, `01.12.2026` und `149,90 EUR` sehen. Lade die Seite neu: Das Ergebnis bleibt in der Datenbank.
+
+## Lerne den Datenfluss
+
+- **HTTP:** Öffne `/docs` und führe `GET /api/documents` aus. Vergleiche die Antwort mit der Dokumentliste in React. Finde die entsprechende Anfrage in den Browser-Entwicklertools unter Netzwerk.
+- **Datenbank:** Lies in `app.py` zuerst die drei SQLAlchemy-Modelle. Ein Run verbindet eine Dokument-ID mit einer Workflow-ID und speichert das Ergebnis.
+- **Tests:** Führe `.venv/bin/python -m pytest -q` aus. Ändere testweise die E-Mail in `test_app.py` nur beim Upload und erkläre, warum der Vergleich fehlschlägt. Mache die Änderung wieder rückgängig.
+- **Erste eigene Änderung:** Ergänze in `PATTERNS` eine Regel für Rechnungsnummern. Ergänze den Schlüssel in `FIELDS` und im React-Objekt `labels` und teste die neue Auswahl. Überlege, an welcher Stelle der neue Wert validiert wird.
+
+## Nächste Meilensteine
+
+1. Workflows bearbeiten, Dokumente löschen und Datenbankmigrationen einführen.
+2. Regelanbieter hinter eine klar definierte Schnittstelle verschieben, dann ein lokales Modell für freie Felder anbinden. Ausgaben validieren und mit Testdokumenten vergleichen.
+3. Hintergrundjobs, Anmeldung, Trennung der Nutzerdaten, OCR und produktionsfähige Bereitstellung.
+
+Aktuell erkennt die Extraktion Textmuster, prüft aber keine semantische Richtigkeit von Datumsangaben oder Geldbeträgen. PDF-Bildscans benötigen OCR. Es gibt noch kein LLM, keine zeitgesteuerte Ausführung und keine Veröffentlichung.
