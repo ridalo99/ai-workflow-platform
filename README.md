@@ -39,8 +39,18 @@ Dieser Modus verwendet standardmäßig SQLite. Beide Varianten sind lokale Einze
 
 ## Nächste Meilensteine
 
-1. Workflows bearbeiten, Dokumente löschen und Datenbankmigrationen einführen.
-2. Regelanbieter hinter eine klar definierte Schnittstelle verschieben, dann ein lokales Modell für freie Felder anbinden. Ausgaben validieren und mit Testdokumenten vergleichen.
-3. Hintergrundjobs, Anmeldung, Trennung der Nutzerdaten, OCR und produktionsfähige Bereitstellung.
+Datenbankmigrationen, Hintergrundjobs, Anmeldung, Trennung der Nutzerdaten, OCR und produktionsfähige Bereitstellung.
 
-Aktuell erkennt die Extraktion Textmuster, prüft aber keine semantische Richtigkeit von Datumsangaben oder Geldbeträgen. PDF-Bildscans benötigen OCR. Es gibt noch kein LLM, keine zeitgesteuerte Ausführung und keine Veröffentlichung.
+Aktuell erkennt die Extraktion Textmuster, prüft aber keine semantische Richtigkeit von Datumsangaben oder Geldbeträgen. PDF-Bildscans benötigen OCR. Es gibt keine zeitgesteuerte Ausführung und keinen gehosteten Betrieb.
+
+## Workflows ändern und Dokumente verwalten
+
+Unter „Gespeicherte Workflows“ kannst du Name und Felder ändern. Ergebnisse früherer Ausführungen behalten ihre Werte. Beim Löschen eines Dokuments werden auch die zugehörigen Ergebnisse gelöscht.
+
+## Optional: lokale KI-Zusammenfassung mit Ollama
+
+1. [Ollama](https://ollama.com/) lokal starten und `ollama pull qwen2.5:3b` ausführen.
+2. In Workflows „KI-Zusammenfassung (Ollama)“ auswählen und ein kurzes Testdokument ausführen (maximal 6.000 Zeichen). Regelbasierte Felder funktionieren weiterhin ohne Ollama.
+3. Ohne Docker verwendet die API standardmäßig `http://127.0.0.1:11434`. Docker Desktop verwendet `http://host.docker.internal:11434`. Falls der Dienst aus Docker nicht erreichbar ist, teste zunächst den Start ohne Docker. Modell und Ziel lassen sich serverseitig über `OLLAMA_MODEL` und `OLLAMA_URL` konfigurieren. Verwende einen lokalen Dienst, damit Inhalte auf deinem Gerät bleiben.
+
+Der Adapter in `extraction.py` schickt Dokumenttext erst bei einer ausdrücklich gewählten KI-Ausführung an den konfigurierten Server. Er fordert ein JSON-Schema an und validiert die Antwort. Das prüft ihre Form, nicht die sachliche Richtigkeit. Der automatisierte Test verwendet eine simulierte Ollama-Antwort. Für einen echten Modelltest vergleiche die Zusammenfassung mit dem Original und erkläre, welche Fakten das Modell übernommen oder weggelassen hat.

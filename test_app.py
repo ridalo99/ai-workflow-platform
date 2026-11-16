@@ -31,3 +31,24 @@ def test_invalid_input(client):
     assert client.post("/api/documents", files={"file": ("test.pdf", b"not a PDF")}).status_code == 422
     assert client.post("/api/workflows", json={"name": "Test", "fields": ["unknown"]}).status_code == 422
     assert client.post("/api/runs", json={"document_id": 999, "workflow_id": 999}).status_code == 404
+
+
+def test_update_delete_and_validated_ai_response(client, monkeypatch):
+    doc = client.post("/api/documents", files={"file": ("test.txt", "Ein Testdokument.")}).json()
+    flow = client.post("/api/workflows", json={"name": "Alt", "fields": ["words"]}).json()
+    path = f"/api/workflows/{flow['id']}"
+    assert client.put(path, json={"name": "Neu", "fields": ["summary"]}).json()["name"] == "Neu"
+
+    def fake_ollama(url, **options):
+        import httpx
+        assert url.endswith("/api/chat")
+        assert options["json"]["messages"][-1]["content"] == "Ein Testdokument."
+        return httpx.Response(200, request=httpx.Request("POST", url),
+                              json={"message": {"content": '{"summary":"Kurzer Test."}'}})
+
+    monkeypatch.setattr("extraction.httpx.post", fake_ollama)
+    body = {"document_id": doc["id"], "workflow_id": flow["id"]}
+    assert client.post("/api/runs", json=body).json()["result"] == {"summary": "Kurzer Test."}
+    assert client.delete(f"/api/documents/{doc['id']}").status_code == 204
+    assert client.get("/api/runs").json() == []
+    assert client.post("/api/runs", json=body).status_code == 404

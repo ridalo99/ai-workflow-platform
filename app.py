@@ -6,10 +6,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
+import httpx
+from extraction import summarize
+
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from pypdf import PdfReader
-from sqlalchemy import ForeignKey, JSON, Text, create_engine, select
+from sqlalchemy import ForeignKey, JSON, Text, create_engine, delete, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 engine = create_engine(os.getenv("DATABASE_URL", "sqlite:///workflow.db"))
@@ -52,12 +55,12 @@ class DocumentDetail(DocumentInfo):
     text: str
 
 
-FIELDS = ("emails", "dates", "amounts", "words")
+FIELDS = ("emails", "dates", "amounts", "words", "summary")
 
 
 class WorkflowInput(BaseModel):
     name: str = Field(min_length=1, max_length=80, pattern=r"\S")
-    fields: list[str] = Field(min_length=1, max_length=4)
+    fields: list[str] = Field(min_length=1, max_length=5)
 
 
 class WorkflowInfo(WorkflowInput):
@@ -134,6 +137,16 @@ def upload(file: UploadFile, db: DB):
     return record
 
 
+@app.delete("/api/documents/{id}", status_code=204)
+def delete_document(id: int, db: DB):
+    record = db.get(Document, id)
+    if record is None:
+        raise HTTPException(404, "Dokument nicht gefunden.")
+    db.execute(delete(Run).where(Run.document_id == id))
+    db.delete(record)
+    db.commit()
+
+
 @app.get("/api/workflows", response_model=list[WorkflowInfo])
 def workflows(db: DB):
     return list(db.scalars(select(Workflow).order_by(Workflow.id.desc())))
@@ -145,6 +158,20 @@ def create_workflow(body: WorkflowInput, db: DB):
         raise HTTPException(422, "Unbekannter Extraktionstyp.")
     record = Workflow(name=body.name.strip(), fields=list(dict.fromkeys(body.fields)))
     db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@app.put("/api/workflows/{id}", response_model=WorkflowInfo)
+def update_workflow(id: int, body: WorkflowInput, db: DB):
+    record = db.get(Workflow, id)
+    if record is None:
+        raise HTTPException(404, "Workflow nicht gefunden.")
+    if not set(body.fields) <= set(FIELDS):
+        raise HTTPException(422, "Unbekannter Extraktionstyp.")
+    record.name = body.name.strip()
+    record.fields = list(dict.fromkeys(body.fields))
     db.commit()
     db.refresh(record)
     return record
@@ -169,7 +196,14 @@ def execute(body: RunInput, db: DB):
         raise HTTPException(404, "Dokument oder Workflow fehlt.")
     result = {key: len(doc.text.split()) if key == "words" else
               list(dict.fromkeys(re.findall(PATTERNS[key], doc.text)))[:100]
-              for key in workflow.fields}
+              for key in workflow.fields if key != "summary"}
+    if "summary" in workflow.fields:
+        if len(doc.text) > 6000:
+            raise HTTPException(422, "Für die KI-Zusammenfassung maximal 6.000 Zeichen verwenden.")
+        try:
+            result["summary"] = summarize(doc.text)
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            raise HTTPException(502, "Ollama nicht erreichbar, Modell fehlt oder Antwort ungültig. Lokalen Dienst und Modell prüfen.") from None
     record = Run(**body.model_dump(), result=result)
     db.add(record)
     db.commit()
