@@ -179,3 +179,46 @@ def test_worker_restart_recovers_queue_without_duplicate_runs(client):
     assert app.process_one(app.engine)
     assert not app.process_one(app.engine)
     assert len(client.get("/api/runs").json()) == 2
+
+
+@pytest.fixture
+def reviewable_run(client, monkeypatch):
+    monkeypatch.setattr(app, "approved_amount", lambda _: {"value": "999,00 EUR"})
+    doc = client.post("/api/documents", files={"file": ("demo.txt", "Test")}).json()
+    flow = client.post("/api/workflows", json={"name": "Betrag", "fields": ["approved_amount"]}).json()
+    run = client.post("/api/runs", json={"document_id": doc["id"], "workflow_id": flow["id"]}).json()
+    return f"/api/runs/{run['id']}"
+
+
+def test_approval_uses_only_saved_review(client, reviewable_run, monkeypatch):
+    monkeypatch.setenv("APPROVAL_SERVICE_URL", "http://approval:8080/")
+
+    def evaluate(url, **options):
+        assert url == "http://approval:8080/api/approvals/evaluate"
+        assert options["json"] == {"amountCents": 320050}
+        return httpx.Response(200, request=httpx.Request("POST", url),
+                              json={"status": "MANUAL_REVIEW", "thresholdCents": 300000})
+
+    monkeypatch.setattr(app.httpx, "post", evaluate)
+    assert client.get("/api/runs/999/approval").status_code == 404
+    assert client.get(reviewable_run + "/approval").status_code == 409
+    assert client.put(reviewable_run + "/amount-review", json={"value": "3.200,50 EUR"}).status_code == 200
+    response = client.get(reviewable_run + "/approval")
+    assert response.status_code == 200
+    assert response.json() == {"status": "MANUAL_REVIEW", "thresholdCents": 300000}
+
+
+@pytest.mark.parametrize("failure,expected", [("offline", 503), ("http", 502), ("invalid", 502)])
+def test_approval_service_failure_preserves_review_and_export(client, reviewable_run, monkeypatch, failure, expected):
+    def evaluate(url, **options):
+        request = httpx.Request("POST", url)
+        if failure == "offline":
+            raise httpx.ConnectError("offline", request=request)
+        if failure == "http":
+            return httpx.Response(500, request=request)
+        return httpx.Response(200, request=request, json={"status": "UNKNOWN", "thresholdCents": 0})
+
+    monkeypatch.setattr(app.httpx, "post", evaluate)
+    assert client.put(reviewable_run + "/amount-review", json={"value": "3.200,00 EUR"}).status_code == 200
+    assert client.get(reviewable_run + "/approval").status_code == expected
+    assert client.get(reviewable_run + "/amount-export/json").json()["verified_amount"] == "3.200,00 EUR"

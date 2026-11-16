@@ -11,9 +11,14 @@ services:
       interval: 3s
       timeout: 2s
       retries: 15
+  approval:
+    build: ./approval-service
+    environment:
+      APPROVAL_THRESHOLD_CENTS: ${APPROVAL_THRESHOLD_CENTS:-500000}
   api:
     build: .
     environment:
+      APPROVAL_SERVICE_URL: http://approval:8080
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
       DATABASE_URL: postgresql+psycopg://workflow:workflow-dev@db/workflow

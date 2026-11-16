@@ -246,6 +246,36 @@ def review_amount(id: int, body: AmountReview, db: DB):
     return run
 
 
+class ApprovalEvaluation(BaseModel):
+    status: Literal["AUTO_APPROVED", "MANUAL_REVIEW"]
+    thresholdCents: Annotated[int, Field(strict=True, ge=0)]
+
+
+@app.get("/api/runs/{id}/approval", response_model=ApprovalEvaluation)
+def evaluate_approval(id: int, db: DB):
+    """Evaluate the current approval rule for a saved human-reviewed EUR amount."""
+    run = amount_run(id, db)
+    reviewed = run.result.get("amount_review")
+    if reviewed is None:
+        raise HTTPException(409, "Betrag zuerst prüfen und speichern.")
+
+    amount_cents = int(reviewed.removesuffix(" EUR").replace(".", "").replace(",", ""))
+    base_url = os.getenv("APPROVAL_SERVICE_URL", "http://127.0.0.1:8080").rstrip("/")
+    try:
+        response = httpx.post(
+            f"{base_url}/api/approvals/evaluate",
+            json={"amountCents": amount_cents},
+            timeout=httpx.Timeout(3.0, connect=1.0),
+            trust_env=False,
+        )
+        response.raise_for_status()
+        return ApprovalEvaluation.model_validate_json(response.content)
+    except httpx.RequestError:
+        raise HTTPException(503, "Der Freigabedienst ist derzeit nicht erreichbar.") from None
+    except (httpx.HTTPStatusError, ValueError):
+        raise HTTPException(502, "Der Freigabedienst hat keine gültige Entscheidung geliefert.") from None
+
+
 @app.get("/api/runs/{id}/amount-export/{format}")
 def export_amount(id: int, format: Literal["json", "csv"], db: DB):
     run = amount_run(id, db)

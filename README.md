@@ -30,13 +30,31 @@ flowchart LR
     API -->|SQLAlchemy| DB[("PostgreSQL in Docker / SQLite lokal")]
     Worker["Python-Worker"] -->|Aufträge und Ergebnisse| DB
     Worker -->|Optionale KI-Extraktion| Ollama["Ollama"]
+    API -->|REST: geprüfter Betrag in Cent| Approval["Java 21 / Spring Boot"]
 ```
 
 Die API speichert Uploads und Workflow-Konfigurationen. Beim Start legt sie einen Auftrag an und antwortet mit HTTP 202. Der Worker verarbeitet den Auftrag und speichert das Ergebnis. React fragt den Status ab.
 
+FastAPI besitzt Dokumente, Workflows und manuell geprüfte Beträge. Der Java-Service kapselt die Freigabepolitik als unabhängig testbaren REST-Vertrag. Er benötigt keine Datenbank und erhält ausschließlich den Betrag in Cent. Die Abfrage ist optional und kann auch für vorhandene Ausführungen mit gespeichertem Prüfwert verwendet werden.
+
+## Freigaberegel für geprüfte Beträge
+
+Nach dem Speichern des Prüfwerts kannst du die Entscheidung unter [FastAPI OpenAPI](http://localhost:8000/docs) abrufen. Die Beispielgrenze ist konfigurierbar und beträgt standardmäßig **5.000,00 EUR** (`APPROVAL_THRESHOLD_CENTS=500000`). Ein Betrag bis einschließlich der Grenze erhält `AUTO_APPROVED`. Höhere Beträge erhalten `MANUAL_REVIEW`. Das Ergebnis ist eine Live-Auswertung und wird nicht gespeichert.
+
+| API | Methode und Pfad | Vertrag |
+| --- | --- | --- |
+| FastAPI | `GET /api/runs/{id}/approval` | Liefert die aktuelle Entscheidung für den gespeicherten Prüfwert. HTTP 404 bei fehlender Betragsextraktion, 409 bei fehlendem Prüfwert, 503 bei Verbindungsfehler oder Timeout und 502 bei einer fehlerhaften Antwort des Dienstes. |
+| Spring Boot | `POST /api/approvals/evaluate` | Erwartet `{"amountCents":320050}`. Liefert z. B. `{"status":"AUTO_APPROVED","thresholdCents":500000}`. Ungültige Eingaben liefern HTTP 400. |
+
+Compose verwendet intern `http://approval:8080`. Ohne Docker startest du den Dienst mit JDK 21 und Maven über `mvn -f approval-service/pom.xml spring-boot:run`. FastAPI nutzt dann standardmäßig `http://127.0.0.1:8080`. Die Adresse kannst du mit `APPROVAL_SERVICE_URL` anpassen.
+
 ## Automatisierte Checks
 
-GitHub Actions führt bei jedem Push und Pull Request die Python-Tests und den React-Produktionsbuild als getrennte Jobs aus. Die Fehlertests prüfen abgelehnte Uploads, Verbindungsfehler zu Ollama, ungültige Modellantworten und die Wiederaufnahme wartender Aufträge nach einem Worker-Neustart. Die Ollama-Tests simulieren HTTP-Antworten und laufen ohne Modellinstallation.
+GitHub Actions führt bei jedem Push und Pull Request die Python-Tests und den React-Produktionsbuild sowie die Java-21-Tests als getrennte Jobs aus. Die Fehlertests prüfen abgelehnte Uploads, Verbindungsfehler zu Ollama, ungültige Modellantworten und die Wiederaufnahme wartender Aufträge nach einem Worker-Neustart. Die Ollama-Tests simulieren HTTP-Antworten und laufen ohne Modellinstallation.
+
+Java-Tests lokal ausführen mit `mvn -f approval-service/pom.xml verify`. Die JUnit-Tests prüfen Grenzwerte und ungültige JSON-Eingaben über Spring MVC. Die FastAPI-Tests prüfen den HTTP-Vertrag, die Verwendung des gespeicherten Prüfwerts sowie die Fehlerbehandlung und den weiterhin verfügbaren Export.
+
+Bei der Einführung des Freigabedienstes liefen lokal **10 JUnit-5-Testfälle mit Java 21** und **22 Python-Tests** erfolgreich.
 
 ## Start
 
