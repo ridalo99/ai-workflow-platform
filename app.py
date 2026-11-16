@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from pypdf import PdfReader
-from sqlalchemy import ForeignKey, JSON, Text, create_engine, delete, select
+from sqlalchemy import ForeignKey, JSON, Text, create_engine, delete, select, update
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 engine = create_engine(os.getenv("DATABASE_URL", "sqlite:///workflow.db"))
@@ -45,6 +45,27 @@ class Run(Base):
     document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"))
     workflow_id: Mapped[int] = mapped_column(ForeignKey("workflows.id"))
     result: Mapped[dict] = mapped_column(JSON)
+
+
+class Job(Base):
+    __tablename__ = "workflow_jobs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"))
+    workflow_id: Mapped[int] = mapped_column(ForeignKey("workflows.id"))
+    fields: Mapped[list[str]] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(default="queued")
+    run_id: Mapped[int | None] = mapped_column(ForeignKey("runs.id"))
+    error: Mapped[str | None]
+
+
+class JobInfo(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    document_id: int
+    workflow_id: int
+    status: str
+    run_id: int | None
+    error: str | None
 
 
 class DocumentInfo(BaseModel):
@@ -144,6 +165,7 @@ def delete_document(id: int, db: DB):
     record = db.get(Document, id)
     if record is None:
         raise HTTPException(404, "Dokument nicht gefunden.")
+    db.execute(delete(Job).where(Job.document_id == id))
     db.execute(delete(Run).where(Run.document_id == id))
     db.delete(record)
     db.commit()
@@ -196,19 +218,7 @@ def execute(body: RunInput, db: DB):
     doc, workflow = db.get(Document, body.document_id), db.get(Workflow, body.workflow_id)
     if doc is None or workflow is None:
         raise HTTPException(404, "Dokument oder Workflow fehlt.")
-    result = {key: len(doc.text.split()) if key == "words" else
-              list(dict.fromkeys(re.findall(PATTERNS[key], doc.text)))[:100]
-              for key in workflow.fields if key not in {"summary", "approved_amount"}}
-    if {"summary", "approved_amount"}.intersection(workflow.fields):
-        if len(doc.text) > 6000:
-            raise HTTPException(422, "Für KI-Workflows maximal 6.000 Zeichen verwenden.")
-        try:
-            if "summary" in workflow.fields:
-                result["summary"] = summarize(doc.text)
-            if "approved_amount" in workflow.fields:
-                result["approved_amount"] = approved_amount(doc.text)
-        except (httpx.HTTPError, ValueError, KeyError, TypeError):
-            raise HTTPException(502, "Ollama nicht erreichbar, Modell fehlt oder Antwort ungültig. Lokalen Dienst und Modell prüfen.") from None
+    result = extract(doc.text, workflow.fields)
     record = Run(**body.model_dump(), result=result)
     db.add(record)
     db.commit()
@@ -250,3 +260,73 @@ def export_amount(id: int, format: Literal["json", "csv"], db: DB):
     writer.writeheader()
     writer.writerow(row)
     return Response(buffer.getvalue(), media_type="text/csv", headers=headers)
+
+
+def extract(text: str, fields: list[str]) -> dict:
+    result = {key: len(text.split()) if key == "words" else
+              list(dict.fromkeys(re.findall(PATTERNS[key], text)))[:100]
+              for key in fields if key not in {"summary", "approved_amount"}}
+    if {"summary", "approved_amount"}.intersection(fields):
+        if len(text) > 6000:
+            raise HTTPException(422, "Für KI-Workflows maximal 6.000 Zeichen verwenden.")
+        try:
+            if "summary" in fields:
+                result["summary"] = summarize(text)
+            if "approved_amount" in fields:
+                result["approved_amount"] = approved_amount(text)
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            raise HTTPException(502, "Ollama nicht erreichbar, Modell fehlt oder Antwort ungültig. Lokalen Dienst und Modell prüfen.") from None
+    return result
+
+@app.post("/api/jobs", status_code=202, response_model=JobInfo)
+def enqueue(body: RunInput, db: DB):
+    doc = db.get(Document, body.document_id)
+    flow = db.get(Workflow, body.workflow_id)
+    if doc is None or flow is None:
+        raise HTTPException(404, "Dokument oder Workflow fehlt.")
+    job = Job(**body.model_dump(), fields=flow.fields)
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return job
+
+
+@app.get("/api/jobs", response_model=list[JobInfo])
+def jobs(db: DB):
+    return list(db.scalars(select(Job).order_by(Job.id.desc()).limit(100)))
+
+
+def process_one(engine) -> bool:
+    with Session(engine) as db:
+        job_id = db.scalar(select(Job.id).where(Job.status == "queued").order_by(Job.id).limit(1))
+        if job_id is None:
+            return False
+        claimed = db.execute(update(Job).where(Job.id == job_id, Job.status == "queued").values(status="running"))
+        db.commit()
+        if claimed.rowcount != 1:
+            return False
+        job = db.get(Job, job_id)
+        if job is None:
+            return True
+        doc = db.get(Document, job.document_id)
+        text, fields = doc.text if doc else "", job.fields
+    try:
+        result = extract(text, fields)
+        error = None
+    except HTTPException as exc:
+        error = str(exc.detail)
+    except Exception:
+        error = "Verarbeitung fehlgeschlagen."
+    with Session(engine) as db:
+        job = db.get(Job, job_id, with_for_update=True)
+        if job is None:
+            return True
+        if error:
+            job.status, job.error = "failed", error
+        else:
+            run = Run(document_id=job.document_id, workflow_id=job.workflow_id, result=result)
+            db.add(run)
+            db.flush()
+            job.status, job.run_id = "completed", run.id
+        db.commit()
+    return True

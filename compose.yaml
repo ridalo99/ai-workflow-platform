@@ -21,6 +21,21 @@ services:
       db:
         condition: service_healthy
     ports: ["127.0.0.1:8000:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/openapi.json', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+  worker:
+    build: .
+    environment:
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      DATABASE_URL: postgresql+psycopg://workflow:workflow-dev@db/workflow
+    depends_on:
+      api:
+        condition: service_healthy
+    command: ["python", "worker.py"]
   web:
     image: node:22
     working_dir: /app

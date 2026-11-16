@@ -89,3 +89,32 @@ def test_review_and_export(client, monkeypatch):
     assert client.get("/api/runs").json()[0]["result"]["amount_review"] == "3.200,00 EUR"
     assert client.get(base + "/amount-export/json").json()["verified_amount"] == "3.200,00 EUR"
     assert client.get(base + "/amount-export/csv").text.splitlines()[1] == f"{run['id']};{doc['id']};3.200,00 EUR"
+
+
+def test_background_job_persists_and_uses_submitted_fields(client):
+    doc = client.post("/api/documents", files={"file": ("demo.txt", "Drei kleine Wörter.")}).json()
+    flow = client.post("/api/workflows", json={"name": "Demo", "fields": ["words"]}).json()
+    response = client.post("/api/jobs", json={"document_id": doc["id"], "workflow_id": flow["id"]})
+    assert response.status_code == 202
+    assert client.get("/api/jobs").json()[0]["status"] == "queued"
+    assert client.get("/api/runs").json() == []
+    client.put(f"/api/workflows/{flow['id']}", json={"name": "Neu", "fields": ["dates"]})
+    assert app.process_one(app.engine)
+    job = client.get("/api/jobs").json()[0]
+    assert job["status"] == "completed"
+    assert client.get("/api/runs").json()[0]["result"] == {"words": 3}
+    assert job["run_id"] == client.get("/api/runs").json()[0]["id"]
+
+
+def test_background_failure_is_visible(client, monkeypatch):
+    def unavailable(_):
+        raise app.httpx.ConnectError("offline")
+
+    monkeypatch.setattr(app, "summarize", unavailable)
+    doc = client.post("/api/documents", files={"file": ("demo.txt", "Demo")}).json()
+    flow = client.post("/api/workflows", json={"name": "KI", "fields": ["summary"]}).json()
+    client.post("/api/jobs", json={"document_id": doc["id"], "workflow_id": flow["id"]})
+    assert app.process_one(app.engine)
+    job = client.get("/api/jobs").json()[0]
+    assert job["status"] == "failed" and "Ollama" in job["error"]
+    assert client.get("/api/runs").json() == []

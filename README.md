@@ -64,3 +64,11 @@ Wähle „Freigegebener Betrag (KI)“ und führe den Workflow auf `beispiel-kom
 Öffne eine Ausführung mit „Freigegebener Betrag (KI)“. Vergleiche den Vorschlag mit dem Original und speichere den bestätigten oder korrigierten Wert im Feld „Geprüfter Betrag“ (z. B. `3.200,00 EUR`). Auch wenn die KI keinen Betrag gefunden hat, kannst du ihn manuell eintragen. Der KI-Vorschlag bleibt unverändert. Erst nach dem Speichern stehen CSV (Semikolon als Trennzeichen) und JSON zum Download bereit. Beide enthalten Ausführungs-ID, Dokument-ID und Prüfwert. Änderungen im Eingabefeld wirken erst nach dem Speichern auf den Export.
 
 Lernaufgabe: Exportiere vor und nach dem Speichern über die API und erkläre, warum du zuerst HTTP 409 bekommst. Vergleiche anschließend KI-Vorschlag und Prüfwert in `GET /api/runs`.
+
+### Workflows im Hintergrund
+
+Die Oberfläche sendet `POST /api/jobs` und bekommt sofort HTTP 202 mit einer Auftrags-ID. Der separate Worker verarbeitet die in der Datenbank gespeicherten Aufträge. React fragt `GET /api/jobs` alle 1,5 Sekunden ab, solange Aufträge aktiv sind. Ein Neuladen verliert den Auftrag nicht. Erfolgreiche Aufträge verlinken auf die gespeicherte Ausführung. Bei Fehlern kannst du den Workflow erneut starten.
+
+Mit Docker startet `docker compose up --build` den Worker automatisch. Ohne Docker zusätzlich im Projektordner `.venv/bin/python worker.py` mit derselben Datenbankkonfiguration wie das Backend starten. Pro Datenbank nur eine Worker-Instanz starten. Beim Worker-Neustart werden unterbrochene Aufträge als fehlgeschlagen markiert; wartende Aufträge bleiben erhalten.
+
+Lerncheck: Starte einen Ollama-Auftrag und lade die Seite neu. Beobachte im Netzwerk-Tab den Unterschied zwischen HTTP 202 beim Start und den anschließenden Statusabfragen. Schalte für einen zweiten Versuch Ollama aus und prüfe die Fehlermeldung unter „Ergebnisse“.
