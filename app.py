@@ -1,15 +1,17 @@
 """Dokumente speichern und konfigurierbare Extraktionen ausführen."""
+import csv
 import io
 import os
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import httpx
 from extraction import approved_amount, summarize
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from pypdf import PdfReader
 from sqlalchemy import ForeignKey, JSON, Text, create_engine, delete, select
@@ -212,3 +214,39 @@ def execute(body: RunInput, db: DB):
     db.commit()
     db.refresh(record)
     return record
+
+class AmountReview(BaseModel):
+    value: str = Field(pattern=r"^(?:[0-9]{1,12}|[0-9]{1,3}(?:\.[0-9]{3}){1,3}),[0-9]{2} EUR$",
+                       min_length=8, max_length=25)
+
+
+def amount_run(id: int, db: Session) -> Run:
+    run = db.get(Run, id)
+    if run is None or "approved_amount" not in run.result:
+        raise HTTPException(404, "Keine Betragsextraktion für diese Ausführung.")
+    return run
+
+
+@app.put("/api/runs/{id}/amount-review", response_model=RunInfo)
+def review_amount(id: int, body: AmountReview, db: DB):
+    run = amount_run(id, db)
+    run.result = {**run.result, "amount_review": body.value}
+    db.commit()
+    db.refresh(run)
+    return run
+
+
+@app.get("/api/runs/{id}/amount-export/{format}")
+def export_amount(id: int, format: Literal["json", "csv"], db: DB):
+    run = amount_run(id, db)
+    if "amount_review" not in run.result:
+        raise HTTPException(409, "Betrag zuerst prüfen und speichern.")
+    row = {"run_id": run.id, "document_id": run.document_id, "verified_amount": run.result["amount_review"]}
+    headers = {"Content-Disposition": f'attachment; filename="betrag-{id}.{format}"'}
+    if format == "json":
+        return JSONResponse(row, headers=headers)
+    buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(buffer, fieldnames=list(row), delimiter=";")
+    writer.writeheader()
+    writer.writerow(row)
+    return Response(buffer.getvalue(), media_type="text/csv", headers=headers)

@@ -72,3 +72,20 @@ def test_amount_evidence(client, monkeypatch, candidate, status):
         "status": status, "value": "3.200,00 EUR" if status == "quoted" else None,
         "quote": "Freigegeben sind 3.200,00 EUR." if status == "quoted" else None,
     }
+
+
+def test_review_and_export(client, monkeypatch):
+    proposal = {"value": "4.800,00 EUR", "quote": "Angebot: 4.800,00 EUR.", "status": "quoted"}
+    monkeypatch.setattr(app, "approved_amount", lambda _: proposal)
+    doc = client.post("/api/documents", files={"file": ("test.txt", "Test")}).json()
+    flow = client.post("/api/workflows", json={"name": "Betrag", "fields": ["approved_amount"]}).json()
+    run = client.post("/api/runs", json={"document_id": doc["id"], "workflow_id": flow["id"]}).json()
+    base = f"/api/runs/{run['id']}"
+    assert client.get(base + "/amount-export/json").status_code == 409
+    assert client.put(base + "/amount-review", json={"value": "=1"}).status_code == 422
+    updated = client.put(base + "/amount-review", json={"value": "3.200,00 EUR"})
+    assert updated.status_code == 200
+    assert updated.json()["result"]["approved_amount"] == proposal
+    assert client.get("/api/runs").json()[0]["result"]["amount_review"] == "3.200,00 EUR"
+    assert client.get(base + "/amount-export/json").json()["verified_amount"] == "3.200,00 EUR"
+    assert client.get(base + "/amount-export/csv").text.splitlines()[1] == f"{run['id']};{doc['id']};3.200,00 EUR"

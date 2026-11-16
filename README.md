@@ -58,3 +58,9 @@ Der Adapter in `extraction.py` schickt Dokumenttext erst bei einer ausdrücklich
 ### Freigegebenen Betrag mit Beleg extrahieren
 
 Wähle „Freigegebener Betrag (KI)“ und führe den Workflow auf `beispiel-komplex.txt` aus. Erwartet sind **3.200,00 EUR** und ein Zitat zum freigegebenen Festpreis. Der Server nummeriert Beträge mit ihren Originalabsätzen. Ollama wählt eine Nummer oder meldet, dass kein Betrag eindeutig freigegeben wurde. Die App übernimmt das Zitat aus dem Dokument; ob es eine Freigabe belegt, bleibt manuell zu prüfen.
+
+### Betrag prüfen und exportieren
+
+Öffne eine Ausführung mit „Freigegebener Betrag (KI)“. Vergleiche den Vorschlag mit dem Original und speichere den bestätigten oder korrigierten Wert im Feld „Geprüfter Betrag“ (z. B. `3.200,00 EUR`). Auch wenn die KI keinen Betrag gefunden hat, kannst du ihn manuell eintragen. Der KI-Vorschlag bleibt unverändert. Erst nach dem Speichern stehen CSV (Semikolon als Trennzeichen) und JSON zum Download bereit. Beide enthalten Ausführungs-ID, Dokument-ID und Prüfwert. Änderungen im Eingabefeld wirken erst nach dem Speichern auf den Export.
+
+Lernaufgabe: Exportiere vor und nach dem Speichern über die API und erkläre, warum du zuerst HTTP 409 bekommst. Vergleiche anschließend KI-Vorschlag und Prüfwert in `GET /api/runs`.
