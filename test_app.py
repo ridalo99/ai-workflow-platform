@@ -54,11 +54,12 @@ def test_update_delete_and_validated_ai_response(client, monkeypatch):
     assert client.post("/api/runs", json=body).status_code == 404
 
 
-@pytest.mark.parametrize("candidate,status", [(2, "quoted"), (99, "unverified"), (None, "missing")])
+@pytest.mark.parametrize("candidate,status", [(2, "quoted"), (1, "unverified"), (99, "unverified"), (None, "missing")])
 def test_amount_evidence(client, monkeypatch, candidate, status):
     from extraction import ApprovedAmount
 
-    def choose(options, *_):
+    def choose(options, *_, **kwargs):
+        assert kwargs["output_format"]["properties"]["candidate"]["enum"] == [None, 1, 2]
         assert "1: 4.800,00 EUR" in options and "2: 3.200,00 EUR" in options
         return ApprovedAmount(candidate=candidate)
 
