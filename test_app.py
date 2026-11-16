@@ -1,6 +1,8 @@
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 import app
 
 
@@ -40,7 +42,6 @@ def test_update_delete_and_validated_ai_response(client, monkeypatch):
     assert client.put(path, json={"name": "Neu", "fields": ["summary"]}).json()["name"] == "Neu"
 
     def fake_ollama(url, **options):
-        import httpx
         assert url.endswith("/api/chat")
         assert options["json"]["messages"][-1]["content"] == "Ein Testdokument."
         return httpx.Response(200, request=httpx.Request("POST", url),
@@ -107,10 +108,10 @@ def test_background_job_persists_and_uses_submitted_fields(client):
 
 
 def test_background_failure_is_visible(client, monkeypatch):
-    def unavailable(_):
-        raise app.httpx.ConnectError("offline")
+    def unavailable(url, **options):
+        raise httpx.ConnectError("offline", request=httpx.Request("POST", url))
 
-    monkeypatch.setattr(app, "summarize", unavailable)
+    monkeypatch.setattr("extraction.httpx.post", unavailable)
     doc = client.post("/api/documents", files={"file": ("demo.txt", "Demo")}).json()
     flow = client.post("/api/workflows", json={"name": "KI", "fields": ["summary"]}).json()
     client.post("/api/jobs", json={"document_id": doc["id"], "workflow_id": flow["id"]})
@@ -118,3 +119,63 @@ def test_background_failure_is_visible(client, monkeypatch):
     job = client.get("/api/jobs").json()[0]
     assert job["status"] == "failed" and "Ollama" in job["error"]
     assert client.get("/api/runs").json() == []
+
+
+@pytest.mark.parametrize("content,status", [
+    (b"", 422),
+    (b"\xff", 422),
+    (b"Text\x00", 422),
+    (b"x" * (app.LIMIT + 1), 413),
+])
+def test_rejected_upload_is_not_stored(client, content, status):
+    response = client.post("/api/documents", files={"file": ("test.txt", content)})
+    assert response.status_code == status
+    assert client.get("/api/documents").json() == []
+
+
+@pytest.mark.parametrize("content", ["not JSON", '{"summary": "   "}', '{"summary": 42}'])
+def test_invalid_ollama_output_does_not_create_run(client, monkeypatch, content):
+    def invalid_response(url, **options):
+        return httpx.Response(200, request=httpx.Request("POST", url),
+                              json={"message": {"content": content}})
+
+    monkeypatch.setattr("extraction.httpx.post", invalid_response)
+    doc = client.post("/api/documents", files={"file": ("demo.txt", "Demo")}).json()
+    flow = client.post("/api/workflows", json={"name": "KI", "fields": ["summary"]}).json()
+    body = {"document_id": doc["id"], "workflow_id": flow["id"]}
+
+    assert client.post("/api/runs", json=body).status_code == 502
+    assert client.post("/api/jobs", json=body).status_code == 202
+    assert app.process_one(app.engine)
+    job = client.get("/api/jobs").json()[0]
+    assert job["status"] == "failed"
+    assert "Antwort ungültig" in job["error"]
+    assert client.get("/api/runs").json() == []
+
+
+def test_worker_restart_recovers_queue_without_duplicate_runs(client):
+    from worker import mark_interrupted_jobs
+
+    doc = client.post("/api/documents", files={"file": ("demo.txt", "Ein Test")}).json()
+    flow = client.post("/api/workflows", json={"name": "Test", "fields": ["words"]}).json()
+    body = {"document_id": doc["id"], "workflow_id": flow["id"]}
+    completed = client.post("/api/jobs", json=body).json()["id"]
+    assert app.process_one(app.engine)
+    interrupted = client.post("/api/jobs", json=body).json()["id"]
+    waiting = client.post("/api/jobs", json=body).json()["id"]
+
+    with Session(app.engine) as db:
+        db.get(app.Job, interrupted).status = "running"
+        db.commit()
+
+    mark_interrupted_jobs(app.engine)
+    mark_interrupted_jobs(app.engine)
+    jobs = {job["id"]: job for job in client.get("/api/jobs").json()}
+    assert jobs[completed]["status"] == "completed"
+    assert jobs[interrupted]["status"] == "failed"
+    assert "Worker wurde unterbrochen" in jobs[interrupted]["error"]
+    assert jobs[waiting]["status"] == "queued"
+
+    assert app.process_one(app.engine)
+    assert not app.process_one(app.engine)
+    assert len(client.get("/api/runs").json()) == 2

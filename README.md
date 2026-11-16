@@ -1,6 +1,42 @@
 # Workflow Studio
 
+[![CI auf main](https://github.com/ridalo99/ai-workflow-platform/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ridalo99/ai-workflow-platform/actions/workflows/ci.yml)
+
 Lokales Lernprojekt für Dokumentenverarbeitung. Lade eine Textdatei oder ein PDF mit Textebene hoch, speichere einen Extraktionsworkflow und wende ihn auf ein Dokument an. Das Dashboard zeigt Dokumente, Workflows und gespeicherte Ausführungen. Der Server speichert Dateinamen und Text, nicht die ursprünglichen Dateien.
+
+## Demo
+
+[Kurze Bildschirmaufnahme ansehen (WebM)](https://raw.githubusercontent.com/ridalo99/ai-workflow-platform/main/docs/demo/workflow-demo.webm)
+
+Im Beispiel lädt Workflow Studio eine Rechnung als Textdatei, extrahiert E-Mail-Adresse, Datum und Betrag im Hintergrund und zeigt das gespeicherte Ergebnis.
+
+### Dokument hochladen und prüfen
+
+![Dokumentansicht mit der Textvorschau der Beispielrechnung](docs/demo/01-dokument.png)
+
+### Workflow konfigurieren und ausführen
+
+![Workflow für Rechnungsdaten mit ausgewähltem Beispieldokument](docs/demo/02-workflow.png)
+
+### Ergebnis ansehen
+
+![Abgeschlossener Auftrag mit E-Mail-Adresse, Datum und 149,90 EUR](docs/demo/03-ergebnis.png)
+
+## Architektur
+
+```mermaid
+flowchart LR
+    UI["React und TypeScript"] -->|REST und Statusabfragen| API["FastAPI"]
+    API -->|SQLAlchemy| DB[("PostgreSQL in Docker / SQLite lokal")]
+    Worker["Python-Worker"] -->|Aufträge und Ergebnisse| DB
+    Worker -->|Optionale KI-Extraktion| Ollama["Ollama"]
+```
+
+Die API speichert Uploads und Workflow-Konfigurationen. Beim Start legt sie einen Auftrag an und antwortet mit HTTP 202. Der Worker verarbeitet den Auftrag und speichert das Ergebnis. React fragt den Status ab.
+
+## Automatisierte Checks
+
+GitHub Actions führt bei jedem Push und Pull Request die Python-Tests und den React-Produktionsbuild als getrennte Jobs aus. Die Fehlertests prüfen abgelehnte Uploads, Verbindungsfehler zu Ollama, ungültige Modellantworten und die Wiederaufnahme wartender Aufträge nach einem Worker-Neustart. Die Ollama-Tests simulieren HTTP-Antworten und laufen ohne Modellinstallation.
 
 ## Start
 
@@ -39,7 +75,7 @@ Dieser Modus verwendet standardmäßig SQLite. Beide Varianten sind lokale Einze
 
 ## Nächste Meilensteine
 
-Datenbankmigrationen, Hintergrundjobs, Anmeldung, Trennung der Nutzerdaten, OCR und produktionsfähige Bereitstellung.
+Datenbankmigrationen, Anmeldung, Trennung der Nutzerdaten, OCR und produktionsfähige Bereitstellung.
 
 Aktuell erkennt die Extraktion Textmuster, prüft aber keine semantische Richtigkeit von Datumsangaben oder Geldbeträgen. PDF-Bildscans benötigen OCR. Es gibt keine zeitgesteuerte Ausführung und keinen gehosteten Betrieb.
 

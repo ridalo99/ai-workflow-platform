@@ -7,12 +7,16 @@ from sqlalchemy.orm import Session
 
 from app import Base, Job, engine, process_one
 
-if __name__ == "__main__":
-    Base.metadata.create_all(engine)
-    with Session(engine) as db:
+def mark_interrupted_jobs(database_engine):
+    with Session(database_engine) as db:
         db.execute(update(Job).where(Job.status == "running").values(
             status="failed", error="Worker wurde unterbrochen. Bitte erneut ausführen."))
         db.commit()
+
+
+if __name__ == "__main__":
+    Base.metadata.create_all(engine)
+    mark_interrupted_jobs(engine)
     while True:
         try:
             if process_one(engine):
